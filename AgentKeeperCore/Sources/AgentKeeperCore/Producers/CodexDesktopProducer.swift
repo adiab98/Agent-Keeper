@@ -98,22 +98,21 @@ public final class CodexDesktopProducer {
         let discovered = enumerateRollouts(activeWindow: activeWindow, now: now, titleMap: titleMap)
 
         var liveIds: Set<String> = []
-        var mostRecent: (Discovered, Date)? = nil
         var written = 0
 
         for d in discovered {
             liveIds.insert(d.sessionId)
             if writeStatus(d, pid: app.processIdentifier, now: now) { written += 1 }
-            if mostRecent == nil || d.auditMTime > mostRecent!.1 {
-                mostRecent = (d, d.auditMTime)
-            }
         }
 
-        // Dock-badge attention → most-recently-active session.
+        // Dock-badge attention → most-recently-active session that is NOT
+        // working. A working chat is mid-turn and never "needs attention", so
+        // the app-wide badge must not override it (see DockBadgeAttribution).
         if axEnabled {
             if AccessibilityProbe.isTrusted() {
                 if let badge = DockBadgeReader.badge(forAppNamed: "Codex"),
-                   let recent = mostRecent?.0 {
+                   let idx = DockBadgeAttribution.target(discovered.map { ($0.derivedState, $0.auditMTime) }) {
+                    let recent = discovered[idx]
                     let url = AppPaths.statusDirectory.appendingPathComponent("codex-desktop__\(recent.sessionId).json", isDirectory: false)
                     if var s = try? AtomicJSONWriter.read(SessionStatus.self, from: url) {
                         s.state = .waiting
@@ -347,7 +346,10 @@ public final class CodexDesktopProducer {
             state: nextState,
             lastTransitionAt: existing?.state == nextState ? (existing?.lastTransitionAt ?? now) : now,
             lastHeartbeatAt: now,
-            lastEvent: existing?.lastEvent
+            // lastEvent here is only ever the dock-badge "needs attention" note.
+            // Drop it once the chat is no longer waiting so a working/idle row
+            // doesn't keep a stale "N chats need attention" subtitle.
+            lastEvent: nextState == .waiting ? existing?.lastEvent : nil
         )
         return akWrite(status, to: store, logger: AKLog.codexDesktop, key: "codex-desktop")
     }

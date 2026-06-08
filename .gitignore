@@ -1,4 +1,6 @@
 .DS_Store
+# Local-only XcodeGen overrides (e.g. private signing identity)
+*.local.yml
 AgentKeeper.xcodeproj/
 DerivedData/
 build/

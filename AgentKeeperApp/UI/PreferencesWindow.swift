@@ -30,6 +30,7 @@ struct PreferencesView: View {
     @State private var hookInstalled = HookBinaryInstaller.isInstalled
     @State private var claudeInstalled = ClaudeHookInstaller.isInstalled
     @State private var codexInstalled = CodexNotifyInstaller.isInstalled
+    @State private var runningApp = RunningAppInfo.current
     @AppStorage("agentkeeper.sound") private var soundName: String = "Glass"
     @AppStorage("agentkeeper.ax.desktopAttention") private var axEnabled: Bool = false
     @AppStorage("agentkeeper.hideStale") private var hideStale: Bool = true
@@ -50,58 +51,117 @@ struct PreferencesView: View {
             diagnostics
                 .tabItem { Label("Diagnostics", systemImage: "stethoscope") }
         }
-        .frame(width: 480, height: 360)
+        .frame(width: 560, height: 480)
         .padding()
+        .onReceive(diagTimer) { _ in
+            diag = DetectionDiagnostics.shared.snapshot()
+            axTrusted = AccessibilityProbe.isTrusted()
+        }
     }
 
     private var general: some View {
-        Form {
-            Picker("Waiting sound", selection: $soundName) {
-                ForEach(availableSounds, id: \.self) { s in
-                    Text(s).tag(s)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                GroupBox("General") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Picker("Waiting sound", selection: $soundName) {
+                            ForEach(availableSounds, id: \.self) { s in
+                                Text(s).tag(s)
+                            }
+                        }
+                        HStack {
+                            Button("Preview sound") { NSSound(named: NSSound.Name(soundName))?.play() }
+                            Spacer()
+                        }
+                        Toggle("Hide idle agents after 10 minutes", isOn: $hideStale)
+                    }
+                }
+                accessibilitySection
+            }
+            .padding(.vertical, 8)
+        }
+    }
+
+    private var runningAppSection: some View {
+        GroupBox("Running App") {
+            VStack(alignment: .leading, spacing: 8) {
+                metadataRow("Version", "\(runningApp.version) (\(runningApp.build))")
+                metadataRow("Bundle ID", runningApp.bundleIdentifier)
+                metadataRow("Signing", runningApp.signingSummary)
+                metadataRow("Modified", formatted(runningApp.modifiedAt))
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Path")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    Text(runningApp.bundleURL.path)
+                        .font(.system(size: 11, design: .monospaced))
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                        .help(runningApp.bundleURL.path)
+                }
+
+                HStack {
+                    Button("Reveal This App") {
+                        NSWorkspace.shared.activateFileViewerSelecting([runningApp.bundleURL])
+                    }
+                    Button("Copy Path") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(runningApp.bundleURL.path, forType: .string)
+                    }
+                    Spacer()
                 }
             }
-            HStack {
-                Button("Preview sound") { NSSound(named: NSSound.Name(soundName))?.play() }
-                Spacer()
-            }
-            Divider()
-            Toggle("Hide sessions idle for more than 1 hour", isOn: $hideStale)
-            Divider()
-            VStack(alignment: .leading, spacing: 6) {
-                Toggle("Detect Needs Attention on Desktop apps (Accessibility)", isOn: $axEnabled)
+        }
+    }
+
+    private var accessibilitySection: some View {
+        GroupBox("Accessibility") {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: axTrusted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .foregroundStyle(axTrusted ? .green : .orange)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(axTrusted ? "Permission Granted" : "Permission Not Granted")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("Agent Keeper uses Accessibility only for supported desktop agent attention signals.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+
+                HStack {
+                    Button("Open Accessibility Settings") {
+                        openAccessibilitySettings(promptIfNeeded: !axTrusted)
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Button("Re-check") {
+                        axTrusted = AccessibilityProbe.isTrusted()
+                    }
+                    Spacer()
+                }
+
+                Divider()
+
+                Toggle("Detect Needs Attention on Desktop apps", isOn: $axEnabled)
                     .onChange(of: axEnabled) { _, newValue in
                         if newValue && !axTrusted {
-                            AccessibilityProbe.requestTrust()
+                            openAccessibilitySettings(promptIfNeeded: true)
                         }
                         axTrusted = AccessibilityProbe.isTrusted()
                     }
                 Text(axEnabled
                     ? (axTrusted
-                        ? "On — scanning Claude Desktop and Codex Desktop for pending Approve/Allow buttons."
-                        : "On — but Accessibility access not granted yet. Open System Settings → Privacy & Security → Accessibility and enable Agent Keeper.")
-                    : "Off — Desktop apps only show working/idle. Claude Code CLI still gets reliable Needs Attention from its hook."
+                        ? "On: watching Claude Desktop, Claude Cowork, and Codex Desktop for desktop attention signals."
+                        : "On, but macOS has not granted Accessibility yet. Enable Agent Keeper in System Settings.")
+                    : "Off: desktop apps still show working/idle. Claude Code CLI still gets reliable Needs Attention from its hook."
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-                if axEnabled && !axTrusted {
-                    HStack {
-                        Button("Open Accessibility Settings") {
-                            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-                                NSWorkspace.shared.open(url)
-                            }
-                        }
-                        Button("Re-check") { axTrusted = AccessibilityProbe.isTrusted() }
-                    }
-                }
-            }
-            Divider()
-            HStack {
-                Button("Reveal status folder") {
-                    NSWorkspace.shared.activateFileViewerSelecting([AppPaths.statusDirectory])
-                }
-                Spacer()
             }
         }
     }
@@ -176,13 +236,19 @@ struct PreferencesView: View {
                         }
                     }
                 }
+
+                Divider()
+                runningAppSection
+
+                HStack {
+                    Button("Reveal status folder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([AppPaths.statusDirectory])
+                    }
+                    Spacer()
+                }
                 Spacer()
             }
             .padding(.vertical, 8)
-        }
-        .onReceive(diagTimer) { _ in
-            diag = DetectionDiagnostics.shared.snapshot()
-            axTrusted = AccessibilityProbe.isTrusted()
         }
     }
 
@@ -195,6 +261,36 @@ struct PreferencesView: View {
                 Text(ok ? okText : badText).font(.system(size: 11)).foregroundStyle(.secondary)
             }
             Spacer()
+        }
+    }
+
+    private func metadataRow(_ title: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 76, alignment: .leading)
+            Text(value)
+                .font(.system(size: 12))
+                .textSelection(.enabled)
+            Spacer()
+        }
+    }
+
+    private func formatted(_ date: Date?) -> String {
+        guard let date else { return "Unknown" }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .medium
+        return formatter.string(from: date)
+    }
+
+    private func openAccessibilitySettings(promptIfNeeded: Bool) {
+        if promptIfNeeded {
+            AccessibilityProbe.requestTrust()
+        }
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
         }
     }
 

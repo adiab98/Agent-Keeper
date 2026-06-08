@@ -49,6 +49,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ahmeddiab.agentkeeper.app
+        PRODUCT_NAME: Agent Keeper
         CODE_SIGN_ENTITLEMENTS: AgentKeeperApp/AgentKeeperApp.entitlements
         GENERATE_INFOPLIST_FILE: NO
         COMBINE_HIDPI_IMAGES: YES

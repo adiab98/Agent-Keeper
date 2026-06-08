@@ -146,6 +146,43 @@ final class AgentKeeperCoreTests: XCTestCase {
         XCTAssertEqual(reads, 2)
     }
 
+    // MARK: - Dock-badge attention attribution
+
+    func testDockBadgeSkipsWorkingSession() {
+        // The reported bug: the most-recently-active chat is WORKING; an older
+        // chat is idle. An app-wide badge must attach to the idle one, never
+        // the actively-working one.
+        let t = Date(timeIntervalSince1970: 1_779_000_000)
+        XCTAssertEqual(
+            DockBadgeAttribution.target([(.idle, t), (.working, t.addingTimeInterval(10))]),
+            0
+        )
+    }
+
+    func testDockBadgePicksMostRecentIdle() {
+        let t = Date(timeIntervalSince1970: 1_779_000_000)
+        XCTAssertEqual(
+            DockBadgeAttribution.target([
+                (.idle, t),
+                (.idle, t.addingTimeInterval(20)),
+                (.working, t.addingTimeInterval(30)),
+            ]),
+            1
+        )
+    }
+
+    func testDockBadgeNilWhenAllWorking() {
+        // Nothing is awaiting the user — flag nothing rather than a working chat.
+        let t = Date(timeIntervalSince1970: 1_779_000_000)
+        XCTAssertNil(
+            DockBadgeAttribution.target([(.working, t), (.working, t.addingTimeInterval(5))])
+        )
+    }
+
+    func testDockBadgeNilWhenEmpty() {
+        XCTAssertNil(DockBadgeAttribution.target([]))
+    }
+
     // MARK: - Accessibility approval classifier
 
     func testClassifySingleStrongNeedle() {

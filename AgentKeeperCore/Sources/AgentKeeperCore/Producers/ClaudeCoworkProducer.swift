@@ -69,7 +69,6 @@ public final class ClaudeCoworkProducer {
 
         let discovered = enumerate(activeWindow: activeWindow, now: now)
         var liveIds: Set<String> = []
-        var mostRecent: (Discovered, Date)? = nil
         var written = 0
 
         for d in discovered {
@@ -80,17 +79,16 @@ public final class ClaudeCoworkProducer {
             // means the turn is still open.
             let state: AgentState = Self.deriveState(lastEventType: d.lastEventType)
             if writeStatus(d, pid: app.processIdentifier, now: now, derivedState: state) { written += 1 }
-
-            if mostRecent == nil || d.auditMTime > mostRecent!.1 {
-                mostRecent = (d, d.auditMTime)
-            }
         }
 
-        // Dock-badge waiting → most-recently-active session.
+        // Dock-badge waiting → most-recently-active session that is NOT working.
+        // A working chat is mid-turn and never "needs attention", so the
+        // app-wide badge must not override it (see DockBadgeAttribution).
         if axEnabled {
             if AccessibilityProbe.isTrusted() {
                 if let badge = DockBadgeReader.badge(forAppNamed: "Claude"),
-                   let recent = mostRecent?.0 {
+                   let idx = DockBadgeAttribution.target(discovered.map { (Self.deriveState(lastEventType: $0.lastEventType), $0.auditMTime) }) {
+                    let recent = discovered[idx]
                     let url = AppPaths.statusDirectory.appendingPathComponent("claude-cowork__\(recent.sessionId).json", isDirectory: false)
                     if var s = try? AtomicJSONWriter.read(SessionStatus.self, from: url) {
                         s.state = .waiting
@@ -205,7 +203,10 @@ public final class ClaudeCoworkProducer {
             state: nextState,
             lastTransitionAt: existing?.state == nextState ? (existing?.lastTransitionAt ?? now) : now,
             lastHeartbeatAt: now,
-            lastEvent: existing?.lastEvent
+            // lastEvent here is only ever the dock-badge "needs attention" note.
+            // Drop it once the chat is no longer waiting so a working/idle row
+            // doesn't keep a stale "N chats need attention" subtitle.
+            lastEvent: nextState == .waiting ? existing?.lastEvent : nil
         )
         return akWrite(status, to: store, logger: AKLog.claudeCowork, key: "claude-cowork")
     }
