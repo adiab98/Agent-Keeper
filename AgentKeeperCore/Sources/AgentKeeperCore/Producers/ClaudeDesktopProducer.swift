@@ -82,7 +82,6 @@ public final class ClaudeDesktopProducer {
                 // Desktop "waiting" detection is enabled but macOS hasn't granted
                 // Accessibility — silently impossible before, now visible.
                 AKLog.claudeDesktop.notice("AX attention enabled but Accessibility not trusted; cannot read waiting state")
-                DetectionDiagnostics.shared.recordError("claude-desktop", "Accessibility permission not granted")
             }
         }
 

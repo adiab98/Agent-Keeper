@@ -100,7 +100,6 @@ public final class ClaudeCoworkProducer {
                 }
             } else {
                 AKLog.claudeCowork.notice("AX attention enabled but Accessibility not trusted; cannot read dock badge")
-                DetectionDiagnostics.shared.recordError("claude-cowork", "Accessibility permission not granted")
             }
         }
 

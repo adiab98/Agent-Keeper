@@ -124,7 +124,6 @@ public final class CodexDesktopProducer {
                 }
             } else {
                 AKLog.codexDesktop.notice("AX attention enabled but Accessibility not trusted; cannot read dock badge")
-                DetectionDiagnostics.shared.recordError("codex-desktop", "Accessibility permission not granted")
             }
         }
 

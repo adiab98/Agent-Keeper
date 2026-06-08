@@ -50,6 +50,13 @@ public final class DetectionDiagnostics: @unchecked Sendable {
         s.discovered = discovered
         s.written = written
         s.errors = errors
+        if errors == 0 {
+            // A clean scan clears any stale failure (e.g. a permission that was
+            // re-granted, or a transient read/parse error that has since
+            // resolved) so Diagnostics reflects the present, not a fossil.
+            s.lastError = nil
+            s.lastErrorAt = nil
+        }
         stats[key] = s
     }
 
