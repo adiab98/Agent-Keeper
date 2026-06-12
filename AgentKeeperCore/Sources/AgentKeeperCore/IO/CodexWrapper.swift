@@ -36,4 +36,77 @@ public enum CodexWrapper {
         URL(fileURLWithPath: a).standardizedFileURL.path
             == URL(fileURLWithPath: b).standardizedFileURL.path
     }
+
+    // MARK: - TOML `notify` line parsing (narrow, line-based)
+
+    /// Range of the top-level `notify = [...]` assignment in config.toml,
+    /// including its trailing newline when present.
+    public static func notifyLineRange(in text: String) -> Range<String.Index>? {
+        guard let start = text.range(of: #"(^|\n)\s*notify\s*=\s*\["#, options: .regularExpression) else {
+            return nil
+        }
+        // Move start to the beginning of the actual `notify` token (skip leading newline).
+        var lineStart = start.lowerBound
+        if text[lineStart] == "\n" { lineStart = text.index(after: lineStart) }
+        // Find end of array. A `]` inside a quoted element (e.g. a JSON
+        // argument another tool wrote) must not close the array.
+        var i = closingBracket(in: text, after: start.upperBound) ?? text.endIndex
+        if i < text.endIndex { i = text.index(after: i) }
+        // Include trailing newline if present.
+        if i < text.endIndex, text[i] == "\n" { i = text.index(after: i) }
+        return lineStart..<i
+    }
+
+    /// Index of the `]` closing the array whose contents begin at `start`,
+    /// skipping `]` characters inside quoted strings (honoring `\` escapes).
+    private static func closingBracket(in text: String, after start: String.Index) -> String.Index? {
+        var inQuote = false
+        var escape = false
+        var i = start
+        while i < text.endIndex {
+            let ch = text[i]
+            if escape { escape = false }
+            else if ch == "\\" { escape = true }
+            else if ch == "\"" { inQuote.toggle() }
+            else if ch == "]" && !inQuote { return i }
+            i = text.index(after: i)
+        }
+        return nil
+    }
+
+    /// The string elements of the `notify = [...]` array, TOML-unescaped.
+    public static func extractNotifyArray(from text: String) -> [String] {
+        guard let r = notifyLineRange(in: text) else { return [] }
+        let slice = String(text[r])
+        guard let lb = slice.firstIndex(of: "["),
+              let rb = closingBracket(in: slice, after: slice.index(after: lb)),
+              lb < rb else { return [] }
+        let inner = slice[slice.index(after: lb)..<rb]
+        // Split on commas not inside quotes.
+        var items: [String] = []
+        var current = ""
+        var inQuote = false
+        var escape = false
+        for ch in inner {
+            if escape { current.append(ch); escape = false; continue }
+            if ch == "\\" { current.append(ch); escape = true; continue }
+            if ch == "\"" { inQuote.toggle(); current.append(ch); continue }
+            if ch == "," && !inQuote {
+                items.append(current); current = ""; continue
+            }
+            current.append(ch)
+        }
+        if !current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            items.append(current)
+        }
+        return items.compactMap(unquoteToml).filter { !$0.isEmpty }
+    }
+
+    private static func unquoteToml(_ raw: String) -> String? {
+        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard t.hasPrefix("\""), t.hasSuffix("\""), t.count >= 2 else { return nil }
+        let inner = String(t.dropFirst().dropLast())
+        return inner.replacingOccurrences(of: "\\\"", with: "\"")
+                   .replacingOccurrences(of: "\\\\", with: "\\")
+    }
 }

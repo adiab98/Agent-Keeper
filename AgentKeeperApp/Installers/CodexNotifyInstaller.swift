@@ -184,59 +184,14 @@ enum CodexNotifyInstaller {
         return nil
     }
 
-    // MARK: - TOML helpers (narrow, line-based)
+    // MARK: - TOML helpers (narrow, line-based; logic lives in CodexWrapper)
 
     private static func notifyLineRange(in text: String) -> Range<String.Index>? {
-        // Match a top-level `notify = [...]` line (single-line). Handles the
-        // case where the array spans multiple lines.
-        guard let start = text.range(of: #"(^|\n)\s*notify\s*=\s*\["#, options: .regularExpression) else {
-            return nil
-        }
-        // Move start to the beginning of the actual `notify` token (skip leading newline).
-        var lineStart = start.lowerBound
-        if text[lineStart] == "\n" { lineStart = text.index(after: lineStart) }
-        // Find end of array: first unmatched `]` after start.
-        var i = start.upperBound
-        while i < text.endIndex && text[i] != "]" { i = text.index(after: i) }
-        if i < text.endIndex { i = text.index(after: i) }
-        // Include trailing newline if present.
-        if i < text.endIndex, text[i] == "\n" { i = text.index(after: i) }
-        return lineStart..<i
+        CodexWrapper.notifyLineRange(in: text)
     }
 
     private static func extractNotifyArray(from text: String) -> [String] {
-        guard let r = notifyLineRange(in: text) else { return [] }
-        let slice = String(text[r])
-        guard let lb = slice.firstIndex(of: "["),
-              let rb = slice.firstIndex(of: "]"),
-              lb < rb else { return [] }
-        let inner = slice[slice.index(after: lb)..<rb]
-        // Split on commas not inside quotes.
-        var items: [String] = []
-        var current = ""
-        var inQuote = false
-        var escape = false
-        for ch in inner {
-            if escape { current.append(ch); escape = false; continue }
-            if ch == "\\" { current.append(ch); escape = true; continue }
-            if ch == "\"" { inQuote.toggle(); current.append(ch); continue }
-            if ch == "," && !inQuote {
-                items.append(current); current = ""; continue
-            }
-            current.append(ch)
-        }
-        if !current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            items.append(current)
-        }
-        return items.compactMap(unquoteToml).filter { !$0.isEmpty }
-    }
-
-    private static func unquoteToml(_ raw: String) -> String? {
-        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard t.hasPrefix("\""), t.hasSuffix("\""), t.count >= 2 else { return nil }
-        let inner = String(t.dropFirst().dropLast())
-        return inner.replacingOccurrences(of: "\\\"", with: "\"")
-                   .replacingOccurrences(of: "\\\\", with: "\\")
+        CodexWrapper.extractNotifyArray(from: text)
     }
 
     private static func quote(_ s: String) -> String {

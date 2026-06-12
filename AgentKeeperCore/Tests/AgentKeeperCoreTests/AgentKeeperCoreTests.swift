@@ -269,6 +269,36 @@ final class AgentKeeperCoreTests: XCTestCase {
         XCTAssertFalse(CodexWrapper.samePath("/w", "/x"))
     }
 
+    // MARK: - Codex notify TOML parsing
+
+    /// The shape SkyComputerUseClient writes when it wraps our wrapper: the
+    /// last element is a JSON string containing `[`, `]`, `\"` and `\\`.
+    private let skyNotifyLine =
+        #"notify = ["/Apps/Sky", "turn-ended", "--previous-notify", "[\"\\/Users\\/me\\/wrap.sh\"]"]"#
+
+    func testNotifyArraySimple() {
+        XCTAssertEqual(CodexWrapper.extractNotifyArray(from: "notify = [\"/w\"]\n"), ["/w"])
+    }
+
+    func testNotifyLineRangeSpansQuotedBrackets() {
+        // Regression: a `]` inside a quoted element must not terminate the
+        // array early — that left the real tail (`"]`) orphaned on its own
+        // line and corrupted config.toml so Codex refused to start.
+        let text = "model = \"gpt-5.5\"\n\(skyNotifyLine)\n\n[features]\njs_repl = false\n"
+        guard let r = CodexWrapper.notifyLineRange(in: text) else {
+            return XCTFail("notify line not found")
+        }
+        let replaced = text.replacingCharacters(in: r, with: "notify = [\"/w\"]\n")
+        XCTAssertEqual(replaced, "model = \"gpt-5.5\"\nnotify = [\"/w\"]\n\n[features]\njs_repl = false\n")
+    }
+
+    func testNotifyArrayElementsMayContainBrackets() {
+        XCTAssertEqual(
+            CodexWrapper.extractNotifyArray(from: skyNotifyLine),
+            ["/Apps/Sky", "turn-ended", "--previous-notify", #"["\/Users\/me\/wrap.sh"]"#]
+        )
+    }
+
     // MARK: - helpers
 
     private func writeTemp(_ name: String, _ contents: String) throws -> URL {
